@@ -23,11 +23,7 @@ import {
 const { deepParseJson } = require("deep-parse-json");
 const template          = require('lodash/template');
 
-export function gw_init(options, license , data) {
-  
-  // set the license key for enterprise version
-  if (agGrid.LicenseManager && license)
-    agGrid.LicenseManager.setLicenseKey(license);
+export function gw_init(options, data) {
 
   const id              = options.context.id;
   const container       = gw_getDocument().getElementById(id);

@@ -43,6 +43,7 @@ use ::BBjGridExWidget/BBjGridExWidgetClientEvents.bbj::BBjGridExWidgetClientEven
 use ::BBjGridExWidget/BBjGridExWidgetClientEvents.bbj::BBjGridExWidgetClientEventsContextMenu
 use ::BBjGridExWidget/BBjGridExWidgetClientEvents.bbj::BBjGridExWidgetClientEventsCell
 use ::BBjGridExWidget/BBjGridExWidgetClientEvents.bbj::BBjGridExWidgetClientEventsRowEditing
+use ::BBjGridExWidget/util/LicenseManager.bbj::LicenseManager
 rem /**
 rem  * The Grid Core Class.This class works as a columns manager and api provider. 
 rem  * It contains a big number of methods and properties to configure the column from A..Z.
@@ -88,6 +89,11 @@ class public BBjGridExWidget extends BBjWidget implements BBjGridExWidgetColumns
     rem  * The Grid enterprise key
     rem  */
     field public static BBjString LicenseKey$
+    rem /**
+    rem  * When true , the grid will force using the community version of the grid whether there 
+    rem  * is a license key or not.
+    rem  */
+    field public static BBjNumber ForceCommunityBuild! = 0
     rem /**
     rem  * Contains column properties all columns will inherit&#183;
     rem  * <br><b><small>#Configuration</small></b>
@@ -752,12 +758,13 @@ class public BBjGridExWidget extends BBjWidget implements BBjGridExWidgetColumns
     rem  * The client's HTML template to use in order to build the grid&#183;
     rem  */
     field protected BBjString Template$ = ""
-    field protected BBjHtmlView HTMLView!
+    field public BBjHtmlView HTMLView!
     field protected Boolean IsReady! = BBjAPI.FALSE
     field protected BBjVector backlog! = new BBjVector()
     field protected BBjString URL$
     field protected BBjNumber newW!
     field protected BBjNumber newH!
+    field protected LicenseManager LicenseManager!
     rem /**
     rem  * Constant value to define row selection event
     rem  *
@@ -1177,13 +1184,14 @@ class public BBjGridExWidget extends BBjWidget implements BBjGridExWidgetColumns
             REM             if (htmlview!.getClientType() <> "Chromium" AND INFO(3,6)<>"5")
             REM                 htmlview!.setText("<html><center>Error: Need the Chromium Engine in BBj 18.10 or later. Please check your BBj SAM coverage!</center></html>")
             REM             else
-            htmlview!.setCallback(BBjAPI.ON_PAGE_LOADED,#this!,"onLoad")
+            htmlview!.setCallback(BBjAPI.ON_PAGE_LOADED,#this!,"onInit")
             htmlview!.setCallback(BBjAPI.ON_NATIVE_JAVASCRIPT,#this!,"onNativeEvent")
             htmlview!.setOpaque(0)
             htmlview!.setText(html$)
             REM             fi
             #HTMLView!=htmlview!
             #HTMLView!.setVisible(1)
+            #LicenseManager! = new LicenseManager(#HTMLView!)
         else
             #HTMLView!.setSize(#getCanvas().getWidth(),#getCanvas().getHeight())
         FI
@@ -1205,24 +1213,28 @@ class public BBjGridExWidget extends BBjWidget implements BBjGridExWidgetColumns
         FI
     methodend
     rem /**
-    rem  * On Load
-    rem  *
-    rem  * An Event listener excuted after the initial load
+    rem  * An Event listener excuted after the initial load. The method will injected all required file 
+    rem  * on the client to make the grid functionable
     rem  *
     rem  * @param BBjEvent ev! The onLoad event
     rem  */
-    method public void onLoad(BBjEvent ev!)
-        rem ' only do this once
-        #HTMLView!.clearCallback(#HTMLView!.ON_PAGE_LOADED)
+    method public void onInit(BBjEvent ev!)
+        isLicensed! = 0
+        if (#getForceCommunityBuild() = 0) then
+          rem setup the licence manager to generate the key
+          #getLicenseManager().setLicenseKey(#getLicenseKey())
+          isLicensed! = #getLicenseManager().generate()        
+        fi
+         
         ch=unt
         distBase$ = "BBjGridExWidget/client/dist"
         rem include the grid
         if #getDebug() = 1 then
-            gridPath$ = iff(LEN(#LicenseKey$) > 0,distBase$ + "/ag-grid-enterprise.noStyle.js",distBase$ +"/ag-grid-community.noStyle.js")
+            gridPath$ = iff(isLicensed!,distBase$ + "/ag-grid-enterprise.noStyle.js",distBase$ +"/ag-grid-community.noStyle.js")
         else
-            gridPath$ = iff(LEN(#LicenseKey$) > 0,distBase$ + "/ag-grid-enterprise.min.noStyle.js",distBase$ +"/ag-grid-community.min.noStyle.js")
+            gridPath$ = iff(isLicensed!,distBase$ + "/ag-grid-enterprise.min.noStyle.js",distBase$ +"/ag-grid-community.min.noStyle.js")
         FI
-
+        
         open (ch)gridPath$
         read record (ch,siz=5512000)script$
         close (ch)
@@ -1255,6 +1267,17 @@ class public BBjGridExWidget extends BBjWidget implements BBjGridExWidgetColumns
         read record (ch,siz=5512000)script$
         close (ch)
         #injectScript(script$)
+        
+        #HTMLView!.setCallback(BBjAPI.ON_PAGE_LOADED,#this!,"onLoaded")
+    methodend
+    
+    rem /**
+    rem  * On Loaded event listener will flush the callbacks queue and clear all ON_PAGE_LOADED
+    rem  * callbacks
+    rem  */
+    method public void onLoaded(BBjEvent ev!)
+        #HTMLView!.clearCallback(#HTMLView!.ON_PAGE_LOADED)
+        #getLicenseManager().register()
         #IsReady! = BBjAPI.TRUE
         REM         if #RS! <> null() or #URL$>"" then
         REM             #render()
@@ -1270,11 +1293,11 @@ class public BBjGridExWidget extends BBjWidget implements BBjGridExWidgetColumns
         wend
 
         #backlog! = null()
-        if #newW! <> null() and #newH!<> null() then
-        #super!.setSize(#newW!,#newH!)
-        #newW! = null()
-        #newH! = null()
-    FI
+        if (#newW! <> null() and #newH!<> null()) then
+          #super!.setSize(#newW!,#newH!)
+          #newW! = null()
+          #newH! = null()
+        FI        
     methodend
     rem /**
     rem  * On NativeEvent
@@ -2101,11 +2124,11 @@ class public BBjGridExWidget extends BBjWidget implements BBjGridExWidgetColumns
         gson! = new Gson()
         options! = #getAsJsonObject()
         data$ = #getRS().toJson(1 , #getRowNodeId())
-        #executeScript("gw_init(" + gson!.toJson(options!) + ",'" + #LicenseKey$ + "'," + data$ + ")")
+        #executeScript("gw_init(" + gson!.toJson(options!) + "," + data$ + ")")
         REM         if(#getChunkRendering() = 0) then
-        REM             #executeScript("gw_init(" + gson!.toJson(options!) + ",'" + #LicenseKey$ + "'," + data$ + ")")
+        REM             #executeScript("gw_init(" + gson!.toJson(options!) "," + data$ + ")")
         REM         else
-        REM             #executeScript("gw_init(" + gson!.toJson(options!) + ",'" + #LicenseKey$ + "')")
+        REM             #executeScript("gw_init(" + gson!.toJson(options!) + ")")
         REM
         REM             if(#getRS() <>  null() AND #getRS().size() > 0) then
         REM                 #executeScript("gw_setRowsData('" + #GRIDID$ + "'," + data$+ ")")

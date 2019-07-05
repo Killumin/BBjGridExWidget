@@ -14,15 +14,6 @@ declare auto BBjListButton lb_tbl!
 declare auto BBjToolButton btn_fit!
 declare BBjGridExWidget grid!
 
-lic!=System.getProperty("bbjgridexwidget.license")
-
-if lic!=null() or str(lic!)="" then
-    a=msgbox("set license key in bbj.properties under bbjgridexwidget.license=<yourlicense>",48,"Demo for Enterprise Features")
-    release
-fi
-
-BBjGridExWidget.setLicenseKey(lic!)
-
 wnd! = BBjAPI().openSysGui("X0").addWindow(10,10,800,600,"BBj Grid Ex Demo")
 wnd!        .setCallback(BBjAPI.ON_CLOSE,"byebye")
 wnd!        .setCallback(BBjAPI.ON_RESIZE,"resize")
